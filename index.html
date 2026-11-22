@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>yannsiの工作室</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=BIZ+UDPGothic:wght@400;700&display=swap" rel="stylesheet">
+<style>
+/* VOICE everyday, a maker's own shelf, quiet pride
+   IDEA a green cutting mat on the workbench: grid lines, a ruler edge, works laid out on it
+   PICTURE the ruler of the mat is a true-scale timeline, every work pinned on the day it was made
+   COLOUR cutting-mat green fields, white paper cards, cutter-knife yellow for the newest
+   TYPE BIZ UDPGothic 700 for titles and figures, 400 for text
+   LAYOUT mat band full width (title, counts, timeline), cards grid below; phone stacks, timeline keeps pins */
+:root{color-scheme:light dark;--bg:light-dark(#ffffff,#121614);--ink:light-dark(#141a17,#eef3f0);--sub:light-dark(#55615b,#a9b6af);--mat:light-dark(#1f6f50,#123d2d);--matink:#ffffff;--grid:rgba(255,255,255,.13);--grid2:rgba(255,255,255,.28);--card:light-dark(#ffffff,#1b211e);--edge:light-dark(#d5ddd8,#2c3631);--y:#ffd400;--link:light-dark(#1f6f50,#7fd3ab)}
+:root[data-theme=light]{color-scheme:light}:root[data-theme=dark]{color-scheme:dark}
+*{box-sizing:border-box;min-width:0}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font:16px/1.6 "BIZ UDPGothic","Hiragino Sans","Yu Gothic",sans-serif;overflow-x:clip}
+.band{padding-block:clamp(28px,4vw,56px);padding-left:max(5vw,16px);padding-right:max(5vw,16px)}
+.wrap{max-width:1240px;margin:0 auto}
+.mat{background-color:var(--mat);color:var(--matink);background-image:linear-gradient(var(--grid2) 1px,transparent 1px),linear-gradient(90deg,var(--grid2) 1px,transparent 1px),linear-gradient(var(--grid) 1px,transparent 1px),linear-gradient(90deg,var(--grid) 1px,transparent 1px);background-size:120px 120px,120px 120px,24px 24px,24px 24px}
+.head{display:flex;flex-wrap:wrap;align-items:end;justify-content:space-between;gap:16px 32px}
+h1{font-size:clamp(34px,6vw,52px);line-height:1.05;letter-spacing:-.02em;margin:0;font-weight:700;text-wrap:balance}
+.lead{margin:10px 0 0;font-size:17px;max-width:38em}
+.nums{display:flex;gap:28px;flex-wrap:wrap}
+.num b{display:block;font-size:clamp(30px,5vw,44px);line-height:1;font-weight:700;font-variant-numeric:tabular-nums}
+.num span{font-size:14px}
+.num.new b{color:var(--y);font-size:clamp(20px,3vw,26px);line-height:1.2;max-width:12em}
+.fig{position:relative;margin-top:28px;height:220px}
+.fig>svg{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
+.fig text{font-family:inherit;font-size:14px;fill:#fff;paint-order:stroke;stroke:var(--mat);stroke-width:4px}
+.fig .yr{font-weight:700;font-size:15px}
+.fig .newest{fill:var(--y)}
+.note{font-size:14px;margin:14px 0 0;opacity:.92}
+.bar{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;margin-bottom:20px}
+h2{font-size:26px;line-height:1.2;margin:0}
+.seg{display:flex;border:1px solid var(--edge);border-radius:8px;overflow:hidden}
+.seg button{font:inherit;font-size:15px;min-height:44px;padding:0 16px;border:0;background:var(--card);color:var(--ink);cursor:pointer}
+.seg button[aria-pressed=true]{background:var(--mat);color:#fff}
+.seg button:focus-visible,a:focus-visible{outline:3px solid var(--y);outline-offset:2px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,270px),1fr));gap:16px}
+.card{background:var(--card);border:1px solid var(--edge);border-radius:6px;padding:18px 18px 14px;display:flex;flex-direction:column;gap:6px;box-shadow:3px 3px 0 var(--edge)}
+.card.is-new{border-color:var(--y);box-shadow:3px 3px 0 var(--y)}
+.card h3{margin:0;font-size:21px;line-height:1.25}
+.card .rn{font-size:13px;color:var(--sub);overflow-wrap:anywhere}
+.card p{margin:2px 0 0;font-size:15px}
+.meta{font-size:13px;color:var(--sub);margin-top:auto;padding-top:8px;display:flex;flex-wrap:wrap;gap:4px 14px}
+.meta span{white-space:nowrap}
+.acts{display:flex;gap:10px;flex-wrap:wrap}
+.acts a{display:inline-flex;align-items:center;min-height:44px;padding:0 14px;border-radius:6px;font-weight:700;text-decoration:none;font-size:15px}
+.acts .open{background:var(--mat);color:#fff}
+.acts .code{color:var(--link);border:1px solid var(--edge)}
+.tag{display:inline-block;background:var(--y);color:#141a17;font-size:13px;font-weight:700;padding:1px 8px;border-radius:4px;margin-left:6px;vertical-align:3px}
+.tools{margin-top:40px}
+.empty{color:var(--sub)}
+footer{font-size:14px;color:var(--sub);border-top:1px solid var(--edge)}
+footer p{margin:0 0 6px}
+@media(max-width:600px){.fig{margin-top:20px}h2{font-size:22px}}
+@media(prefers-reduced-motion:no-preference){.pin{animation:drop .5s ease-out both}@keyframes drop{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:none}}}
+</style>
+</head>
+<body>
+<header class="band mat">
+  <div class="wrap">
+    <div class="head">
+      <div>
+        <h1>yannsiの工作室</h1>
+        <p class="lead">夜な夜な作ったものの置き場。GitHubに新しく作品を置くと、ここにも勝手に並びます。</p>
+      </div>
+      <div class="nums" id="nums"></div>
+    </div>
+    <div class="fig" id="fig" aria-label="作ったもの年表"><svg id="tl" role="img"></svg></div>
+    <p class="note" id="status">読み込み中…</p>
+  </div>
+</header>
+<main class="band">
+  <div class="wrap">
+    <div class="bar">
+      <h2>ページで動く作品</h2>
+      <div class="seg" role="group" aria-label="並べ方">
+        <button id="s-new" aria-pressed="true">新しい順</button>
+        <button id="s-old" aria-pressed="false">古い順</button>
+        <button id="s-upd" aria-pressed="false">更新順</button>
+      </div>
+    </div>
+    <div class="grid" id="works"></div>
+    <section class="tools">
+      <div class="bar"><h2>道具・スクリプト</h2></div>
+      <div class="grid" id="tools"></div>
+    </section>
+  </div>
+</main>
+<footer class="band">
+  <div class="wrap">
+    <p>作品の名前は、このページの中の「なまえ帳」（NAMES）で日本語にしています。新しい作品は、GitHubのリポジトリに説明（About）を書いておくと、その文がカードに出ます。</p>
+    <p id="src"></p>
+  </div>
+</footer>
+<script>
+{
+const USER = 'yannsi';
+const SELF = ['kousakushitsu', 'yannsi.github.io'];
+const NAMES = {
+  'koe-qr': '声のQR', 'myaku-wo-miru': '脈を見る', 'ugoku-qr': '動くQR',
+  'te-de-egaku': '手で描く', 'te-de-hiraku': '手でひらく', 'oto-wo-miru': '音を見る',
+  'yotei-hyo': '予定表メーカー', 'yt-fzf-sh': 'yt-fzf', 'kunkunshi': '工工四を撮ると鳴る三線'
+};
+const KNOWN = ['koe-qr', 'myaku-wo-miru', 'ugoku-qr', 'te-de-egaku', 'te-de-hiraku', 'oto-wo-miru', 'yotei-hyo', 'yt-fzf-sh'];
+const NOTES = {
+  'koe-qr': '声やメロディをQRに入れて、ネットなしで再生する', 'myaku-wo-miru': 'カメラで脈拍を測る',
+  'ugoku-qr': 'QRを切り替えて表示し、ネットなしでデータを渡す', 'te-de-egaku': 'カメラで手の動きを読んで絵を描く',
+  'te-de-hiraku': '手の形でサイトを開く', 'oto-wo-miru': 'マイクの音をスペクトログラムで見る',
+  'yotei-hyo': '大きな字の週間予定表を印刷・リンク共有する', 'yt-fzf-sh': 'YouTubeを検索・再生・保存するbash＋fzfのツール',
+  'kunkunshi': '手書きの工工四を撮ると、三線の音で鳴らす'
+};
+const FALLBACK = KNOWN.map(n => ({ name: n, description: null, created_at: null, pushed_at: null, has_pages: n !== 'yt-fzf-sh', fork: false, html_url: `https://github.com/${USER}/${n}`, homepage: null }));
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const jp = d => d ? `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日` : '';
+const ago = d => {
+  if (!d) return '';
+  const days = Math.floor((Date.now() - d) / 864e5);
+  if (days < 1) return '今日';
+  if (days < 31) return `${days}日前`;
+  if (days < 365) return `${Math.floor(days / 30)}か月前`;
+  return `${Math.floor(days / 365)}年前`;
+};
+let items = [], sortKey = 'new', live = false;
+
+function pageUrl(r) {
+  if (r.homepage && /^https?:\/\//.test(r.homepage)) return r.homepage;
+  if (r.has_pages) return `https://${USER}.github.io/${r.name}/`;
+  return null;
+}
+function shape(list) {
+  return list.filter(r => !r.fork && !r.archived && !SELF.includes(r.name)).map(r => ({
+    name: r.name,
+    title: NAMES[r.name] || r.name.replace(/[-_]+/g, ' '),
+    desc: r.description || NOTES[r.name] || '',
+    made: r.created_at ? new Date(r.created_at) : null,
+    upd: r.pushed_at ? new Date(r.pushed_at) : null,
+    page: pageUrl(r),
+    code: r.html_url
+  }));
+}
+async function load() {
+  try {
+    const res = await fetch(`https://api.github.com/users/${USER}/repos?per_page=100&type=owner&sort=created`);
+    if (!res.ok) throw new Error(res.status);
+    const data = await res.json();
+    try { localStorage.setItem('kousaku-cache', JSON.stringify({ at: Date.now(), data })); } catch (e) {}
+    live = true;
+    return { data, at: new Date() };
+  } catch (e) {
+    try {
+      const c = JSON.parse(localStorage.getItem('kousaku-cache'));
+      if (c && c.data) return { data: c.data, at: new Date(c.at) };
+    } catch (e2) {}
+    return { data: FALLBACK, at: null };
+  }
+}
+function newestOf(list) {
+  return list.filter(i => i.made).sort((a, b) => b.made - a.made)[0] || null;
+}
+function card(i, newest) {
+  const isNew = newest && i === newest;
+  return `<article class="card${isNew ? ' is-new' : ''}">
+    <h3>${esc(i.title)}${isNew ? '<span class="tag">最新</span>' : ''}</h3>
+    <div class="rn">${esc(USER)}/${esc(i.name)}</div>
+    ${i.desc ? `<p>${esc(i.desc)}</p>` : ''}
+    <div class="meta">${i.made ? `<span>作った日 ${jp(i.made)}</span>` : ''}${i.upd ? `<span>更新 ${ago(i.upd)}</span>` : ''}</div>
+    <div class="acts">${i.page ? `<a class="open" href="${esc(i.page)}" target="_blank" rel="noopener">ひらく</a>` : ''}<a class="code" href="${esc(i.code)}" target="_blank" rel="noopener">コード</a></div>
+  </article>`;
+}
+function sorted(list) {
+  const t = d => d ? +d : 0;
+  const by = { new: (a, b) => t(b.made) - t(a.made), old: (a, b) => (t(a.made) || 9e15) - (t(b.made) || 9e15), upd: (a, b) => t(b.upd) - t(a.upd) };
+  return list.slice().sort(by[sortKey]);
+}
+function renderCards() {
+  const newest = newestOf(items);
+  const works = sorted(items.filter(i => i.page));
+  const tools = sorted(items.filter(i => !i.page));
+  $('works').innerHTML = works.length ? works.map(i => card(i, newest)).join('') : '<p class="empty">まだページで動く作品はありません。</p>';
+  $('tools').innerHTML = tools.length ? tools.map(i => card(i, newest)).join('') : '<p class="empty">ページを持たないリポジトリはありません。</p>';
+  $('tools').parentElement.hidden = !tools.length;
+}
+function renderNums() {
+  const newest = newestOf(items);
+  const thisYear = items.filter(i => i.made && i.made.getFullYear() === new Date().getFullYear()).length;
+  $('nums').innerHTML = `
+    <div class="num"><b>${items.length}</b><span>作ったもの</span></div>
+    ${live || items.some(i => i.made) ? `<div class="num"><b>${thisYear}</b><span>今年の作品</span></div>` : ''}
+    ${newest ? `<div class="num new"><b>${esc(newest.title)}</b><span>いちばん新しい作品</span></div>` : ''}`;
+}
+const fig = $('fig'), svg = $('tl');
+function draw() {
+  const W = fig.clientWidth;
+  const dated = items.filter(i => i.made).sort((a, b) => a.made - b.made);
+  if (!dated.length) {
+    fig.style.height = '0px';
+    svg.innerHTML = '';
+    return;
+  }
+  const narrow = W < 520;
+  const first = dated[0].made, now = new Date();
+  const start = new Date(first.getFullYear(), first.getMonth(), 1);
+  const end = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+  const L = 6, R = 6, span = end - start;
+  const x = d => L + (d - start) / span * (W - L - R);
+  const lanes = [];
+  const placed = dated.map(i => {
+    const px = x(i.made);
+    const w = narrow ? 0 : i.title.length * 15 + 12;
+    let left = Math.min(Math.max(px - 4, 0), W - w);
+    let lane = 0;
+    if (!narrow) {
+      while (lanes[lane] !== undefined && lanes[lane] > left - 8) lane++;
+      lanes[lane] = left + w;
+    }
+    return { i, px, left, lane };
+  });
+  const laneH = 26, nl = narrow ? 0 : lanes.length;
+  const ruler = (narrow ? 34 : 16 + nl * laneH) + 18;
+  const H = ruler + 48;
+  if (fig.style.height !== H + 'px') fig.style.height = H + 'px';
+  const newest = dated[dated.length - 1];
+  let s = '';
+  s += `<rect x="0" y="${ruler - 2}" width="${W}" height="4" fill="#fff" opacity=".9"/>`;
+  const months = [];
+  for (let d = new Date(start); d <= end; d = new Date(d.getFullYear(), d.getMonth() + 1, 1)) months.push(d);
+  const step = Math.max(1, Math.ceil(months.length / Math.max(1, Math.floor(W / (narrow ? 46 : 58)))));
+  months.forEach((d, k) => {
+    const mx = x(d), big = d.getMonth() === 0 || k === 0;
+    s += `<line x1="${mx}" x2="${mx}" y1="${ruler}" y2="${ruler + (big ? 16 : 9)}" stroke="#fff" stroke-width="${big ? 2 : 1}"/>`;
+    if (k % step === 0 && k < months.length - 1) {
+      const label = big ? `${d.getFullYear()}年${d.getMonth() + 1}月` : `${d.getMonth() + 1}月`;
+      s += `<text x="${mx + 4}" y="${ruler + 34}" class="${big ? 'yr' : ''}">${label}</text>`;
+    }
+  });
+  placed.forEach(({ i, px, left, lane }, k) => {
+    const isNew = i === newest;
+    const top = narrow ? ruler - 22 : 16 + lane * laneH;
+    const col = isNew ? 'var(--y)' : '#fff';
+    s += `<g class="pin" style="animation-delay:${k * 60}ms">`;
+    s += `<line x1="${px}" x2="${px}" y1="${narrow ? top + 6 : top + 6}" y2="${ruler - 2}" stroke="${col}" stroke-width="1.5" opacity=".8"/>`;
+    s += `<circle cx="${px}" cy="${ruler}" r="${isNew ? 7 : 5}" fill="${col}" stroke="var(--mat)" stroke-width="2"/>`;
+    if (!narrow) s += `<text x="${left}" y="${top}" class="${isNew ? 'newest' : ''}">${esc(i.title)}</text>`;
+    s += `<title>${esc(i.title)}（${jp(i.made)}）</title></g>`;
+  });
+  svg.setAttribute('aria-label', `作ったもの年表：${dated.map(i => i.title).join('、')}`);
+  svg.innerHTML = s;
+}
+const ro = new ResizeObserver(() => draw());
+function setSort(k) {
+  sortKey = k;
+  ['new', 'old', 'upd'].forEach(n => $('s-' + n).setAttribute('aria-pressed', String(n === k)));
+  renderCards();
+}
+$('s-new').addEventListener('click', () => setSort('new'));
+$('s-old').addEventListener('click', () => setSort('old'));
+$('s-upd').addEventListener('click', () => setSort('upd'));
+load().then(({ data, at }) => {
+  items = shape(Array.isArray(data) ? data : FALLBACK);
+  renderNums();
+  renderCards();
+  ro.observe(fig);
+  draw();
+  const st = $('status');
+  if (live) st.textContent = `GitHubから ${items.length} 点を読み込みました。目盛りは作った月、黄色がいちばん新しい作品です。`;
+  else if (at) st.textContent = `GitHubにつながらなかったので、${jp(at)}に読み込んだ内容を表示しています。`;
+  else st.textContent = 'いまはGitHubにつながらないので、登録済みの作品だけを表示しています（日付と新作は、GitHub Pagesに置くと自動で出ます）。';
+  $('src').textContent = live ? `出どころ：GitHub（${USER} の公開リポジトリ）・${jp(at)} に取得` : `出どころ：このページに書いてある作品リスト`;
+});
+}
+</script>
+</body>
+</html>
