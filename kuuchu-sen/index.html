@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>空中に線を張る</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=BIZ+UDPGothic:wght@400;700&display=swap" rel="stylesheet">
+<style>
+html,body{margin:0;height:100%;background:#05070d;color:#eef2ff;font-family:"BIZ UDPGothic","Hiragino Sans",sans-serif;overflow:hidden}
+#stage{position:fixed;inset:0}
+video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transform:scaleX(-1);filter:brightness(.5) saturate(.75)}
+canvas{position:absolute;inset:0;width:100%;height:100%;touch-action:none}
+#hint{position:fixed;top:max(14px,env(safe-area-inset-top));left:12px;right:12px;text-align:center;font-size:16px;font-weight:700;text-shadow:0 1px 6px #000;pointer-events:none}
+#bar{position:fixed;left:0;right:0;bottom:0;display:flex;gap:8px;flex-wrap:wrap;justify-content:center;padding:12px;padding-bottom:max(12px,env(safe-area-inset-bottom));background:linear-gradient(transparent,rgba(0,0,0,.65))}
+button{font:inherit;font-size:15px;min-height:44px;padding:0 16px;border-radius:22px;border:1px solid rgba(255,255,255,.3);background:rgba(20,24,40,.75);color:#fff;cursor:pointer}
+button:focus-visible{outline:3px solid #f5c84c;outline-offset:2px}
+button.on{background:#f5c84c;color:#1a1400;border-color:#f5c84c}
+#start{position:fixed;inset:0;display:grid;place-items:center;background:radial-gradient(circle at 50% 40%,#1a2147,#05070d 70%);text-align:center;padding:24px;z-index:5}
+#start h1{font-size:32px;line-height:1.2;margin:0 0 14px}
+#start p{max-width:30em;margin:0 auto 8px;line-height:1.75;color:#c9d1ee}
+#start small{display:block;margin-top:14px;color:#8d96bb;font-size:13px}
+#go{font-size:18px;padding:0 30px;min-height:54px;background:#f5c84c;color:#1a1400;border:0;margin-top:16px;font-weight:700}
+</style>
+</head>
+<body>
+<div id="stage">
+  <video id="v" playsinline muted></video>
+  <canvas id="c"></canvas>
+</div>
+<div id="hint"></div>
+<div id="bar">
+  <button id="undo">1本消す</button>
+  <button id="clear">全部消す</button>
+  <button id="snd">音：オフ</button>
+  <button id="mode">マウス/指：弾く</button>
+</div>
+<div id="start">
+  <div>
+    <h1>空中に線を張る</h1>
+    <p>両手の親指と人差し指でつまんで、左右に引きはなします。<br>指を離すと、光る線が空中に残ります。<br>人差し指で線をはじくと震えます。</p>
+    <button id="go">カメラを始める</button>
+    <small>パソコンのChrome / Edge 推奨。手はカメラから40〜80cmくらい。<br>映像は端末の中だけで処理され、外には送られません。</small>
+  </div>
+</div>
+
+<script type="module">
+{
+const $=s=>document.querySelector(s);
+const video=$('#v'),cv=$('#c'),ctx=cv.getContext('2d'),hintEl=$('#hint');
+const BASE='https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14';
+const MODEL='https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task';
+const RYUKYU=[0,4,5,7,11];               // 琉球音階 ド ミ ファ ソ シ
+const NAMES=['ド','ミ','ファ','ソ','シ'];
+const HUES=[45,190,320,140,20,265,170,0];
+const DEAD=10;                            // 手ブレで鳴らないための無反応ゾーン(px)
+let W=0,H=0,DPR=1,landmarker=null,lastVT=-1,actx=null,soundOn=false,camMsg='';
+let strings=[],sparks=[],draft=null,armed=true,nextId=1,hueI=0,mode='pluck',lastHint='';
+const hands=new Map();
+
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+const lerp=(a,b,k)=>a+(b-a)*k;
+const dist=(p,q)=>Math.hypot(q.x-p.x,q.y-p.y);
+
+function resize(){
+  DPR=Math.min(2,window.devicePixelRatio||1);W=innerWidth;H=innerHeight;
+  cv.width=W*DPR;cv.height=H*DPR;ctx.setTransform(DPR,0,0,DPR,0,0);
+}
+addEventListener('resize',resize);resize();
+
+// カメラ座標(0〜1)を、左右反転・cover表示した画面座標に変換
+function mapPt(l){
+  const vw=video.videoWidth||1280,vh=video.videoHeight||720,s=Math.max(W/vw,H/vh);
+  return{x:W-(l.x*vw*s+(W-vw*s)/2),y:l.y*vh*s+(H-vh*s)/2};
+}
+function getHand(k){
+  let h=hands.get(k);
+  if(!h){h={k,pinch:false,p:null,tip:null,thumb:null,idx:null,ratio:1,seen:0,side:new Map(),trail:[],vel:0,present:false};hands.set(k,h)}
+  return h;
+}
+
+// ---- 手の認識 ----
+function detect(now){
+  if(!landmarker||video.readyState<2||video.currentTime===lastVT)return;
+  lastVT=video.currentTime;
+  let r;try{r=landmarker.detectForVideo(video,now)}catch(e){return}
+  const hd=r.handedness||r.handednesses||[],used=new Set();
+  (r.landmarks||[]).forEach((lm,i)=>{
+    let k=(hd[i]&&hd[i][0]&&hd[i][0].categoryName)||('h'+i);
+    if(used.has(k))k='h'+i;used.add(k);
+    const h=getHand(k),P=j=>mapPt(lm[j]);
+    const th=P(4),ix=P(8),wr=P(0),mc=P(9);
+    // つまみ判定は「手の大きさ」で割るので、距離が変わっても同じ感覚
+    h.ratio=dist(th,ix)/(dist(wr,mc)||1);
+    if(!h.pinch&&h.ratio<0.32)h.pinch=true;else if(h.pinch&&h.ratio>0.48)h.pinch=false;
+    const mid={x:(th.x+ix.x)/2,y:(th.y+ix.y)/2},fresh=!h.present,prev=h.tip;
+    h.tip=fresh?ix:{x:lerp(prev.x,ix.x,.55),y:lerp(prev.y,ix.y,.55)};   // なめらかに追従
+    h.p=fresh?mid:{x:lerp(h.p.x,mid.x,.5),y:lerp(h.p.y,mid.y,.5)};
+    h.vel=fresh?0:dist(prev,h.tip);
+    h.thumb=th;h.idx=ix;h.present=true;h.seen=now;
+    h.trail.push({x:h.tip.x,y:h.tip.y});if(h.trail.length>10)h.trail.shift();
+  });
+}
+function ageHands(now){
+  for(const h of hands.values()){
+    if(h.k!=='ptr'&&h.present&&now-h.seen>160){h.present=false;h.pinch=false;h.side.clear();h.trail=[]}
+  }
+}
+
+// ---- 線を張る ----
+function updateDraft(now){
+  if(draft&&draft.ptr)return;
+  const ps=[...hands.values()].filter(h=>h.k!=='ptr'&&h.present&&h.pinch);
+  if(!draft){
+    if(ps.length===0)armed=true;
+    if(armed&&ps.length>=2){draft={a:ps[0].k,b:ps[1].k,pa:{...ps[0].p},pb:{...ps[1].p}};armed=false}
+    return;
+  }
+  const a=hands.get(draft.a),b=hands.get(draft.b);
+  if(a.present&&b.present&&a.pinch&&b.pinch){draft.pa={...a.p};draft.pb={...b.p};return}
+  commit(draft.pa,draft.pb,now);draft=null;
+}
+function commit(p,q,now){
+  if(dist(p,q)<80)return;
+  const [A,B]=p.x<=q.x?[p,q]:[q,p];
+  const s={id:nextId++,ax:A.x,ay:A.y,bx:B.x,by:B.y,hue:HUES[hueI++%HUES.length],amp:0,t0:now,pt:.5,glow:1,touch:0,born:now,note:-1,noteT:0};
+  strings.push(s);
+  if(strings.length>10){const old=strings.shift();for(const h of hands.values())h.side.delete(old.id)}
+  for(let k=0;k<=12;k++)burst(lerp(A.x,B.x,k/12),lerp(A.y,B.y,k/12),s.hue,3);
+}
+
+// ---- はじく ----
+const notesOf=s=>clamp(Math.round(Math.hypot(s.bx-s.ax,s.by-s.ay)/80),3,12);
+function pluck(s,t,v,now){
+  s.amp=clamp(v,.35,1);s.t0=now;s.pt=clamp(t,.08,.92);s.glow=1;s.touch=0;
+  const n=notesOf(s),i=Math.min(n-1,Math.floor(t*n));s.note=i;s.noteT=now;
+  sound(196*Math.pow(2,(RYUKYU[i%5]+12*Math.floor(i/5))/12),s.amp);
+  burst(lerp(s.ax,s.bx,t),lerp(s.ay,s.by,t),s.hue,16);
+}
+function plucks(now){
+  for(const h of hands.values()){
+    if(!h.present||h.pinch||!h.tip)continue;
+    for(const s of strings){
+      const dx=s.bx-s.ax,dy=s.by-s.ay,L2=dx*dx+dy*dy,L=Math.sqrt(L2);
+      const t=((h.tip.x-s.ax)*dx+(h.tip.y-s.ay)*dy)/L2;
+      if(t<-.03||t>1.03){h.side.delete(s.id);continue}
+      const d=((h.tip.x-s.ax)*dy-(h.tip.y-s.ay)*dx)/L;
+      if(Math.abs(d)<DEAD){s.touch=Math.min(1,s.touch+.25);continue}   // 指を置いている
+      const sg=d>0?1:-1,prev=h.side.get(s.id);
+      if(prev!==undefined&&prev!==sg)pluck(s,clamp(t,0,1),h.vel/25,now); // 線をまたいだ
+      h.side.set(s.id,sg);
+    }
+  }
+}
+
+// ---- 音（カープラス・ストロング法で弦の音を計算） ----
+function sound(f,vel){
+  if(!soundOn||!actx)return;
+  const sr=actx.sampleRate,n=Math.floor(sr*1.6),buf=actx.createBuffer(1,n,sr),d=buf.getChannelData(0);
+  const p=Math.max(2,Math.round(sr/f)),ring=new Float32Array(p);
+  for(let i=0;i<p;i++)ring[i]=Math.random()*2-1;
+  for(let i=0,j=0;i<n;i++){const nx=(j+1)%p;d[i]=ring[j];ring[j]=.5*(ring[j]+ring[nx])*.996;j=nx}
+  const src=actx.createBufferSource(),g=actx.createGain();
+  src.buffer=buf;g.gain.value=.3*vel;src.connect(g).connect(actx.destination);src.start();
+}
+
+// ---- 光の粒 ----
+function burst(x,y,hue,n){
+  for(let i=0;i<n;i++){const a=Math.random()*Math.PI*2,v=.8+Math.random()*3.5;
+    sparks.push({x,y,vx:Math.cos(a)*v,vy:Math.sin(a)*v,life:1,hue})}
+  if(sparks.length>500)sparks.splice(0,sparks.length-500);
+}
+function drawSparks(){
+  for(const p of sparks){p.x+=p.vx;p.y+=p.vy;p.vy+=.04;p.vx*=.97;p.life-=.022;
+    if(p.life<=0)continue;
+    ctx.fillStyle=`hsla(${p.hue},100%,75%,${p.life})`;
+    ctx.beginPath();ctx.arc(p.x,p.y,2.2*p.life+.4,0,7);ctx.fill()}
+  sparks=sparks.filter(p=>p.life>0);
+}
+
+// ---- 描画 ----
+function drawString(s,now){
+  const dx=s.bx-s.ax,dy=s.by-s.ay,L=Math.hypot(dx,dy),nx=-dy/L,ny=dx/L,age=(now-s.t0)/1000;
+  if(s.touch>.4)s.amp*=.86;                                   // 指を置くと止まる
+  const A=Math.min(34,L*.07)*s.amp*Math.exp(-age*2.5),w=2*Math.PI*9,N=56;
+  const g=.35+.65*Math.max(s.glow,s.touch);
+  ctx.beginPath();
+  for(let i=0;i<=N;i++){
+    const u=i/N,sh=u<s.pt?u/s.pt:(1-u)/(1-s.pt);
+    const off=A*(sh*Math.cos(w*age)+.25*Math.sin(2*Math.PI*u)*Math.sin(w*2.1*age));
+    const x=s.ax+dx*u+nx*off,y=s.ay+dy*u+ny*off;
+    i?ctx.lineTo(x,y):ctx.moveTo(x,y);
+  }
+  ctx.lineCap='round';ctx.lineJoin='round';
+  ctx.shadowColor=`hsl(${s.hue},100%,60%)`;ctx.shadowBlur=16+30*g;
+  ctx.strokeStyle=`hsla(${s.hue},100%,60%,${.3+.45*g})`;ctx.lineWidth=5+4*g;ctx.stroke();
+  ctx.shadowBlur=0;ctx.strokeStyle=`hsla(${s.hue},100%,93%,${.65+.35*g})`;ctx.lineWidth=1.6;ctx.stroke();
+  // 音の区切り（勘所のような目印）
+  const n=notesOf(s);
+  ctx.fillStyle=`hsla(${s.hue},100%,85%,.45)`;
+  for(let k=1;k<n;k++){ctx.beginPath();ctx.arc(s.ax+dx*k/n,s.ay+dy*k/n,2,0,7);ctx.fill()}
+  // 両端の留め具
+  for(const [x,y] of [[s.ax,s.ay],[s.bx,s.by]]){
+    ctx.shadowColor=`hsl(${s.hue},100%,60%)`;ctx.shadowBlur=18;
+    ctx.fillStyle=`hsla(${s.hue},100%,80%,.9)`;ctx.beginPath();ctx.arc(x,y,4.5,0,7);ctx.fill();
+  }
+  ctx.shadowBlur=0;
+  // 張った瞬間に光が端から端へ走る
+  const bt=(now-s.born)/450;
+  if(bt<1){const x=lerp(s.ax,s.bx,bt),y=lerp(s.ay,s.by,bt);
+    ctx.shadowColor='#fff';ctx.shadowBlur=30;ctx.fillStyle='#fff';
+    ctx.beginPath();ctx.arc(x,y,6,0,7);ctx.fill();ctx.shadowBlur=0}
+  // 鳴った音の名前
+  const nt=(now-s.noteT)/700;
+  if(s.note>=0&&nt<1){
+    const u=(s.note+.5)/n;
+    ctx.font='700 16px "BIZ UDPGothic",sans-serif';ctx.textAlign='center';
+    ctx.fillStyle=`hsla(${s.hue},100%,88%,${1-nt})`;
+    ctx.fillText(NAMES[s.note%5],s.ax+dx*u+nx*(-22-nt*14),s.ay+dy*u+ny*(-22-nt*14));
+  }
+  s.glow*=.94;s.touch*=.85;
+}
+function drawDraft(now){
+  const p=draft.pa,q=draft.pb,ok=dist(p,q)>=80;
+  ctx.setLineDash([1,11]);ctx.lineDashOffset=-now/25;ctx.lineCap='round';ctx.lineWidth=3.5;
+  ctx.shadowColor='#f5c84c';ctx.shadowBlur=ok?16:4;
+  ctx.strokeStyle=ok?'rgba(255,222,120,.95)':'rgba(200,200,220,.5)';
+  ctx.beginPath();ctx.moveTo(p.x,p.y);ctx.lineTo(q.x,q.y);ctx.stroke();ctx.setLineDash([]);
+  const r=11+2.5*Math.sin(now/120);ctx.lineWidth=2;
+  for(const e of [p,q]){ctx.beginPath();ctx.arc(e.x,e.y,r,0,7);ctx.stroke()}
+  ctx.shadowBlur=0;
+}
+function drawHand(h){
+  h.trail.forEach((t,i)=>{const a=(i+1)/h.trail.length;
+    ctx.fillStyle=`rgba(150,220,255,${a*.35})`;ctx.beginPath();ctx.arc(t.x,t.y,1.5+a*3,0,7);ctx.fill()});
+  if(h.tip){ctx.shadowColor='#9fe3ff';ctx.shadowBlur=14;ctx.fillStyle='rgba(230,248,255,.95)';
+    ctx.beginPath();ctx.arc(h.tip.x,h.tip.y,5,0,7);ctx.fill();ctx.shadowBlur=0}
+  if(!h.thumb)return;
+  if(h.pinch){ctx.shadowColor='#f5c84c';ctx.shadowBlur=20;ctx.fillStyle='rgba(255,220,110,.95)';
+    ctx.beginPath();ctx.arc(h.p.x,h.p.y,8,0,7);ctx.fill();ctx.shadowBlur=0;return}
+  // つまむほど輪が縮む（あとどれだけで「つまみ」になるかの手がかり）
+  const r=clamp(dist(h.thumb,h.idx)/2,6,70),near=clamp(1-(h.ratio-.32)/.6,0,1);
+  ctx.strokeStyle=`rgba(255,220,110,${.15+.55*near})`;ctx.lineWidth=1.5;
+  ctx.beginPath();ctx.arc(h.p.x,h.p.y,r,0,7);ctx.stroke();
+  ctx.beginPath();ctx.moveTo(h.thumb.x,h.thumb.y);ctx.lineTo(h.idx.x,h.idx.y);ctx.stroke();
+}
+function setHint(){
+  const anyHand=[...hands.values()].some(h=>h.k!=='ptr'&&h.present);
+  let m;
+  if(camMsg)m=camMsg;
+  else if(!landmarker)m='';
+  else if(draft)m='そのまま引きはなして、指を離すと線が残ります';
+  else if(!anyHand)m='手をカメラに映してください（40〜80cmくらい）';
+  else if(!strings.length)m='両手の親指と人差し指でつまんで、左右に引きはなす';
+  else m='人差し指で線をはじく／線に指を置くと止まる';
+  if(m!==lastHint){hintEl.textContent=m;lastHint=m}
+}
+function loop(){
+  const now=performance.now();
+  detect(now);ageHands(now);updateDraft(now);plucks(now);
+  ctx.clearRect(0,0,W,H);ctx.globalCompositeOperation='lighter';
+  strings.forEach(s=>drawString(s,now));
+  if(draft)drawDraft(now);
+  drawSparks();
+  for(const h of hands.values())if(h.present)drawHand(h);
+  ctx.globalCompositeOperation='source-over';
+  setHint();
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+
+// ---- マウス・指（カメラなしでも試せる） ----
+const ptr=getHand('ptr');
+function ptrMove(e,fresh){
+  const p={x:e.clientX,y:e.clientY};
+  ptr.vel=ptr.tip&&!fresh?dist(ptr.tip,p):0;ptr.tip=p;ptr.present=true;
+  if(fresh)ptr.side.clear();
+}
+cv.addEventListener('pointerdown',e=>{
+  if(mode==='draw'){const p={x:e.clientX,y:e.clientY};draft={ptr:true,pa:p,pb:{...p}};cv.setPointerCapture(e.pointerId)}
+  else ptrMove(e,true);
+});
+cv.addEventListener('pointermove',e=>{if(draft&&draft.ptr)draft.pb={x:e.clientX,y:e.clientY};else if(mode==='pluck')ptrMove(e,false)});
+cv.addEventListener('pointerup',e=>{
+  if(draft&&draft.ptr){commit(draft.pa,draft.pb,performance.now());draft=null}
+  else if(e.pointerType!=='mouse'){ptr.present=false;ptr.tip=null;ptr.side.clear()}
+});
+
+// ---- ボタン ----
+$('#undo').onclick=()=>{const s=strings.pop();if(s)for(const h of hands.values())h.side.delete(s.id)};
+$('#clear').onclick=()=>{strings=[];for(const h of hands.values())h.side.clear()};
+$('#snd').onclick=e=>{
+  soundOn=!soundOn;
+  if(soundOn&&!actx){try{actx=new(window.AudioContext||window.webkitAudioContext)()}catch(err){}}
+  if(actx&&actx.state==='suspended')actx.resume();
+  e.currentTarget.textContent='音：'+(soundOn?'オン':'オフ');e.currentTarget.classList.toggle('on',soundOn);
+};
+$('#mode').onclick=e=>{
+  mode=mode==='pluck'?'draw':'pluck';ptr.present=false;ptr.tip=null;
+  e.currentTarget.textContent='マウス/指：'+(mode==='pluck'?'弾く':'線を張る');e.currentTarget.classList.toggle('on',mode==='draw');
+};
+$('#go').onclick=async()=>{
+  $('#start').style.display='none';
+  hintEl.textContent='カメラを準備中…';
+  try{
+    const st=await navigator.mediaDevices.getUserMedia({video:{facingMode:'user',width:{ideal:1280},height:{ideal:720}},audio:false});
+    video.srcObject=st;await video.play();
+  }catch(e){camMsg='カメラを使えませんでした。「線を張る」に切り替えて、マウスや指でなぞって試せます';return}
+  hintEl.textContent='手の認識を読み込み中…';
+  try{
+    const {FilesetResolver,HandLandmarker}=await import(BASE+'/vision_bundle.mjs');
+    const vision=await FilesetResolver.forVisionTasks(BASE+'/wasm');
+    const opt=d=>({baseOptions:{modelAssetPath:MODEL,delegate:d},runningMode:'VIDEO',numHands:2,
+      minHandDetectionConfidence:.5,minHandPresenceConfidence:.5,minTrackingConfidence:.5});
+    try{landmarker=await HandLandmarker.createFromOptions(vision,opt('GPU'))}
+    catch(e){landmarker=await HandLandmarker.createFromOptions(vision,opt('CPU'))}
+  }catch(e){camMsg='手の認識を読み込めませんでした（ネット接続を確認してください）'}
+};
+}
+</script>
+</body>
+</html>
